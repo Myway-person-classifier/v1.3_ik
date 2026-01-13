@@ -8,8 +8,8 @@ class AvsHModel(nn.Module):
         self.args = args
 
         # Load the embedding model
-        self.embeddding_model = AutoModel.from_pretrained(args.embedding_model)
-        self.config = self.embeddding_model.config
+        self.embedding_model = AutoModel.from_pretrained(args.embedding_model)
+        self.config = self.embedding_model.config
         
         # learnable Token
         self.cls_token = nn.Parameter(torch.zeros(1, 1, self.config.hidden_size))
@@ -29,7 +29,7 @@ class AvsHModel(nn.Module):
         print(f"Using TransformerEncoder with {args.num_layers} layers, {args.num_heads} heads, "
         f"feedforward dimension {args.dim_feedforward}, dropout {args.dropout}",
         f"hidden size {self.config.hidden_size}")
-        print(f"Parameters in embedding model: {get_check_parameters(self.embeddding_model)}")
+        print(f"Parameters in embedding model: {get_check_parameters(self.embedding_model)}")
         print(f"Parameters in transformer encoder: {get_check_parameters(self.transformer_encoder)}")
 
         # Classifier layer
@@ -37,7 +37,7 @@ class AvsHModel(nn.Module):
 
     def forward(self, input_ids, attention_mask=None, chunk_size: int = 12, *args, **kwargs):
         """
-        chunk_size : 한 번에 embeddding_model 로 보낼 문단 수
+        chunk_size : 한 번에 embedding_model 로 보낼 문단 수
                     (메모리 상황에 맞게 조절하세요)
         """
         
@@ -53,7 +53,7 @@ class AvsHModel(nn.Module):
             input_chunk = input_ids[:, start:end, :].contiguous().view(-1, seq_length)
             attn_chunk  = attention_mask[:, start:end, :].contiguous().view(-1, seq_length)
 
-            outputs = self.embeddding_model(
+            outputs = self.embedding_model(
                 input_ids=input_chunk,
                 attention_mask=attn_chunk
             )

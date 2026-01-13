@@ -6,6 +6,7 @@ Trains MLP or Ridge classifier on fold logits
 import os
 import argparse
 import numpy as np
+import torch
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
 from utils.logit_collector import LogitCollector
 from meta.meta_classifier import MetaClassifier
@@ -79,17 +80,29 @@ def main():
     )
     
     # Data arguments
+    # Colab 환경 지원: 환경 변수로 기본 경로 설정 가능
+    default_output_dir = os.environ.get('OUTPUT_DIR', './outputs')
+    default_logit_dir = os.path.join(default_output_dir, 'fold_logits')
+    default_meta_output_dir = os.path.join(default_output_dir, 'meta_features')
+    
     parser.add_argument(
         '--logit_dir',
         type=str,
-        default='./outputs/fold_logits',
-        help='Directory containing fold logits'
+        default=default_logit_dir,
+        help='Directory containing fold logits (can be set via OUTPUT_DIR env var)'
+    )
+    parser.add_argument(
+        '--model_names',
+        type=str,
+        nargs='+',
+        default=None,
+        help='List of model names for multi-model ensemble (e.g., HybridAvsH Gemma3InfoNCE). If None, single model mode.'
     )
     parser.add_argument(
         '--output_dir',
         type=str,
-        default='./outputs/meta_features',
-        help='Output directory for meta-features and model'
+        default=default_meta_output_dir,
+        help='Output directory for meta-features and model (can be set via OUTPUT_DIR env var)'
     )
     parser.add_argument(
         '--save_model',
@@ -105,11 +118,51 @@ def main():
     
     # Collect logits
     print("\n1. Collecting fold logits...")
-    collector = LogitCollector(args.logit_dir)
-    meta_features, labels = collector.collect_logits()
+    
+    # Multi-model or single model mode
+    if args.model_names and len(args.model_names) > 1:
+        print(f"Multi-model mode: {args.model_names}")
+        from utils.logit_collector import MultiModelLogitCollector
+        collector = MultiModelLogitCollector(args.logit_dir, args.model_names)
+        meta_features, labels = collector.collect_logits()
+        input_dim = len(args.model_names) * 4  # M models × 4 folds
+    else:
+        print("Single model mode")
+        # 단일 모델일 때: logit_dir이 base directory인 경우 model_name 하위 디렉토리 찾기
+        if os.path.exists(args.logit_dir):
+            # logit_dir이 base directory인 경우 (outputs/fold_logits)
+            # 하위에 모델 디렉토리가 있는지 확인
+            model_dirs = [d for d in os.listdir(args.logit_dir) 
+                         if os.path.isdir(os.path.join(args.logit_dir, d)) 
+                         and os.path.exists(os.path.join(args.logit_dir, d, 'oof'))]
+            
+            if len(model_dirs) == 1:
+                # 단일 모델 디렉토리 발견
+                model_name = model_dirs[0]
+                actual_logit_dir = os.path.join(args.logit_dir, model_name)
+                print(f"  Found single model directory: {model_name}")
+                print(f"  Using logit_dir: {actual_logit_dir}")
+                collector = LogitCollector(actual_logit_dir)
+            elif len(model_dirs) == 0:
+                # 기존 구조 (logit_dir 바로 아래에 oof/test)
+                print(f"  Using legacy structure: {args.logit_dir}")
+                collector = LogitCollector(args.logit_dir)
+            else:
+                # 여러 모델 디렉토리 발견 - 에러
+                raise ValueError(
+                    f"Multiple model directories found in {args.logit_dir}: {model_dirs}. "
+                    f"Please specify --model_names to use multi-model mode."
+                )
+        else:
+            # 기존 구조
+            collector = LogitCollector(args.logit_dir)
+        
+        meta_features, labels = collector.collect_logits()
+        input_dim = 4  # 4 folds
     
     print(f"Meta-features shape: {meta_features.shape}")
     print(f"Labels shape: {labels.shape if labels is not None else None}")
+    print(f"Input dimension for Meta-Classifier: {input_dim}")
     
     if labels is None:
         raise ValueError("Labels not found. Cannot train meta-classifier.")
@@ -120,7 +173,7 @@ def main():
     if args.meta_model_type == 'mlp':
         classifier = MetaClassifier(
             model_type='mlp',
-            input_dim=4,
+            input_dim=input_dim,  # Dynamic input dimension
             hidden_layers=args.hidden_layers,
             dropout=args.dropout,
             activation=args.activation

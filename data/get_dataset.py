@@ -4,8 +4,8 @@ import os
 from sklearn.model_selection import KFold
 import tempfile
 
-from datasets.text_dataset import TextDataset
-from datasets.text_collator import TextCollator
+from data.text_dataset import TextDataset
+from data.text_collator import TextCollator
 
 def get_dataset(args, tokenizer):
     """
@@ -20,7 +20,20 @@ def get_dataset(args, tokenizer):
 
     if not args.is_submission:
         
+        # 여러 파일명 지원: train.csv 또는 augmented_merged_reviews.csv
         train_path = os.path.join(args.data_dir, "train.csv")
+        if not os.path.exists(train_path):
+            # 대체 파일명 시도
+            alt_path = os.path.join(args.data_dir, "augmented_merged_reviews.csv")
+            if os.path.exists(alt_path):
+                train_path = alt_path
+                print(f"Using alternative data file: {alt_path}")
+            else:
+                raise FileNotFoundError(
+                    f"Training data not found. Expected one of: "
+                    f"{os.path.join(args.data_dir, 'train.csv')} or "
+                    f"{os.path.join(args.data_dir, 'augmented_merged_reviews.csv')}"
+                )
         
         if args.is_kfold:
             print("Using k-fold cross-validation")

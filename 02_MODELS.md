@@ -1,14 +1,29 @@
-# v1.3 사용 모델 정리
+# v1.3 모델 설명
 
-## 📊 모델 구조 개요
+## 📋 목차
+1. [모델 구조 개요](#모델-구조-개요)
+2. [Base Models (v1.2 구조)](#base-models-v12-구조)
+3. [Hybrid Model 구성](#hybrid-model-구성)
+4. [Meta-Classifier](#meta-classifier)
+5. [모델 설정 파라미터](#모델-설정-파라미터)
+6. [모델 선택 가이드](#모델-선택-가이드)
+7. [권장 구성](#권장-구성)
+
+---
+
+## 모델 구조 개요
 
 v1.3은 **2단계 모델 구조**를 사용합니다:
 1. **Base Models (v1.2)**: 4-Fold로 각각 학습
 2. **Meta-Classifier**: Fold별 예측값을 통합하여 최종 예측
 
+```
+[Base Models] → [4-Fold Training] → [Meta-Features] → [Meta-Classifier] → [Final Prediction]
+```
+
 ---
 
-## 🔹 Base Models (v1.2 구조)
+## Base Models (v1.2 구조)
 
 ### 1. SKKUAI AvsHModel (문단 계층 구조)
 
@@ -66,7 +81,7 @@ AIGT 프로젝트에서 제공하는 **Contrastive Learning** 지원 모델들:
 - **특징**: InfoNCE Loss로 Contrastive Learning 지원
 
 **구현 파일**:
-- `2025-digital-aigt-detection/module/gemma3_seqcls_infonce.py`
+- `models/gemma3_seqcls_infonce.py`
 
 **주요 기능**:
 - Standard Loss (BCE/CE/MSE)
@@ -87,38 +102,16 @@ Total Loss = Standard Loss + λ_cl × InfoNCE Loss
 - **특징**: InfoNCE Loss로 Contrastive Learning 지원
 
 **구현 파일**:
-- `2025-digital-aigt-detection/module/qwen3_seqcls_infonce.py`
+- `models/qwen3_seqcls_infonce.py`
 
 **주요 기능**:
 - Standard Loss (BCE/CE/MSE)
 - Contrastive Loss (InfoNCE) with temperature
 - Adversarial Training (선택적)
 
-#### 2.3 Kanana-8B (참고용)
-
-**모델 정보**:
-- **모델명**: `kakaocorp/kanana-1.5-8b-instruct-2505`
-- **HuggingFace**: https://huggingface.co/kakaocorp/kanana-1.5-8b-instruct-2505
-- **파라미터**: 8B
-- **특징**: 한국어-영어 이중언어 모델
-
-**참고**: AIGT 프로젝트에서 앙상블에 사용했으나, v1.3에서는 **InfoNCE Loss 구현이 없음**.
-- 현재는 Gemma3/Qwen3만 InfoNCE Loss 지원
-
-#### 2.4 EXAONE-32B (참고용)
-
-**모델 정보**:
-- **모델명**: `LGAI-EXAONE/EXAONE-3.5-32B-Instruct`
-- **HuggingFace**: https://huggingface.co/LGAI-EXAONE/EXAONE-3.5-32B-Instruct
-- **파라미터**: 32B
-- **특징**: 대형 한국어 모델
-
-**참고**: AIGT 프로젝트에서 앙상블에 사용했으나, v1.3에서는 **InfoNCE Loss 구현이 없음**.
-- 현재는 Gemma3/Qwen3만 InfoNCE Loss 지원
-
 ---
 
-## 🔄 v1.3 Hybrid Model 구성
+## Hybrid Model 구성
 
 v1.3에서는 **AvsHModel + InfoNCE Loss**를 결합합니다:
 
@@ -150,7 +143,7 @@ class HybridAvsHModel(AvsHModel):
 
 ---
 
-## 🔹 Meta-Classifier (v1.3 추가)
+## Meta-Classifier
 
 4-Fold 학습 후 **Fold별 예측값(Logits)**을 메타 특징으로 사용:
 
@@ -160,9 +153,9 @@ class HybridAvsHModel(AvsHModel):
 Shape: [Num_Samples] × 4
 
 Column 0: OOF Logits (Fold 0, Validation 데이터)
-Column 1: Test Logits (Fold 1, Test 데이터)
-Column 2: Test Logits (Fold 2, Test 데이터)
-Column 3: Test Logits (Fold 3, Test 데이터)
+Column 1: Test Logits (Fold 1, Validation 데이터)
+Column 2: Test Logits (Fold 2, Validation 데이터)
+Column 3: Test Logits (Fold 3, Validation 데이터)
 ```
 
 ### Meta-Classifier 옵션
@@ -171,10 +164,13 @@ Column 3: Test Logits (Fold 3, Test 데이터)
 
 **구조**:
 ```
-Input (4 features) 
-  → Hidden Layer 1 (64 units, ReLU, Dropout=0.2)
-  → Hidden Layer 2 (32 units, ReLU, Dropout=0.2)
-  → Output (1 unit, Sigmoid)
+Input (4 features: Fold Logits)
+  ↓
+Hidden Layer 1 (64 units, ReLU, Dropout=0.2)
+  ↓
+Hidden Layer 2 (32 units, ReLU, Dropout=0.2)
+  ↓
+Output (1 unit, Sigmoid)
 ```
 
 **특징**:
@@ -185,7 +181,9 @@ Input (4 features)
 
 **구조**:
 ```
-Linear Regression with L2 Regularization
+Ridge Regression with L2 Regularization
+- Cross-Validation으로 최적 alpha 선택
+- Alpha 범위: 10^-4 ~ 10^2
 ```
 
 **특징**:
@@ -199,76 +197,7 @@ Linear Regression with L2 Regularization
 
 ---
 
-## 📋 전체 모델 요약 테이블
-
-### Base Models (Fold별 학습)
-
-| 모델 타입 | 모델명 | 파라미터 | 용도 | Loss |
-|-----------|--------|----------|------|------|
-| **AvsHModel** | `kykim/funnel-kor-base` | 110M | Embedding Backbone | BCE + BPR |
-| **AvsHModel** | `kykim/bert-kor-base` | 110M | Embedding Backbone | BCE + BPR |
-| **Gemma3** | `google/gemma-3-12b-it` | 12B | InfoNCE Loss (선택) | BCE + InfoNCE |
-| **Qwen3** | `Qwen/Qwen3-14B` | 14B | InfoNCE Loss (선택) | BCE + InfoNCE |
-
-### Meta-Classifier
-
-| 분류기 타입 | 입력 차원 | 출력 | 용도 |
-|-------------|-----------|------|------|
-| **MLP** | 4 (Fold Logits) | 1 (Binary) | 최종 예측 |
-| **Ridge** | 4 (Fold Logits) | 1 (Binary) | 최종 예측 |
-
----
-
-## 🎯 v1.3 권장 구성
-
-### 구성 1: 경량화 (학습 시간 최소화)
-
-```
-Base Model:
-  - Embedding: kykim/funnel-kor-base
-  - InfoNCE Loss: ❌ 없음
-  - Loss: BCE + BPR
-
-Meta-Classifier:
-  - Type: Ridge Regression
-  - 장점: 빠른 학습, 안정적 성능
-```
-
-**예상 학습 시간**: 6-8시간 (4-Fold 병렬)
-
-### 구성 2: 균형 (성능-시간 균형)
-
-```
-Base Model:
-  - Embedding: kykim/funnel-kor-base
-  - InfoNCE Loss: ✅ Gemma3/Qwen3
-  - Loss: BCE + BPR + InfoNCE (λ_cl=0.1)
-
-Meta-Classifier:
-  - Type: MLP (2 hidden layers)
-  - 장점: 비선형 관계 학습
-```
-
-**예상 학습 시간**: 8-10시간 (4-Fold 병렬)
-
-### 구성 3: 고성능 (최대 정확도)
-
-```
-Base Model:
-  - Embedding: kykim/bert-kor-base
-  - InfoNCE Loss: ✅ Gemma3/Qwen3
-  - Loss: BCE + BPR + InfoNCE (λ_cl=0.2)
-
-Meta-Classifier:
-  - Type: MLP (2-3 hidden layers)
-  - 장점: 복잡한 패턴 학습
-```
-
-**예상 학습 시간**: 10-12시간 (4-Fold 병렬)
-
----
-
-## 🔧 모델 설정 파라미터
+## 모델 설정 파라미터
 
 ### AvsHModel 파라미터
 
@@ -318,7 +247,7 @@ cv = 5                            # Cross-validation folds
 
 ---
 
-## 📊 모델별 메모리 사용량
+## 모델별 메모리 사용량
 
 | 모델 구성 | GPU 메모리 (학습) | GPU 메모리 (추론) | 배치 크기 (권장) |
 |-----------|-------------------|-------------------|------------------|
@@ -331,7 +260,7 @@ cv = 5                            # Cross-validation folds
 
 ---
 
-## 🔍 모델 선택 가이드
+## 모델 선택 가이드
 
 ### 질문 1: 학습 시간이 제한적인가?
 - ✅ **Yes** → 구성 1 (경량화)
@@ -351,7 +280,76 @@ cv = 5                            # Cross-validation folds
 
 ---
 
-## 📝 요약
+## 권장 구성
+
+### 구성 1: 경량화 (학습 시간 최소화)
+
+```
+Base Model:
+  - Embedding: kykim/funnel-kor-base
+  - InfoNCE Loss: ❌ 없음
+  - Loss: BCE + BPR
+
+Meta-Classifier:
+  - Type: Ridge Regression
+  - 장점: 빠른 학습, 안정적 성능
+```
+
+**예상 학습 시간**: 6-8시간 (4-Fold 병렬)
+
+### 구성 2: 균형 (성능-시간 균형)
+
+```
+Base Model:
+  - Embedding: kykim/funnel-kor-base
+  - InfoNCE Loss: ✅ Gemma3/Qwen3
+  - Loss: BCE + BPR + InfoNCE (λ_cl=0.1)
+
+Meta-Classifier:
+  - Type: MLP (2 hidden layers)
+  - 장점: 비선형 관계 학습
+```
+
+**예상 학습 시간**: 8-10시간 (4-Fold 병렬)
+
+### 구성 3: 고성능 (최대 정확도)
+
+```
+Base Model:
+  - Embedding: kykim/bert-kor-base
+  - InfoNCE Loss: ✅ Gemma3/Qwen3
+  - Loss: BCE + BPR + InfoNCE (λ_cl=0.2)
+
+Meta-Classifier:
+  - Type: MLP (2-3 hidden layers)
+  - 장점: 복잡한 패턴 학습
+```
+
+**예상 학습 시간**: 10-12시간 (4-Fold 병렬)
+
+---
+
+## 전체 모델 요약 테이블
+
+### Base Models (Fold별 학습)
+
+| 모델 타입 | 모델명 | 파라미터 | 용도 | Loss |
+|-----------|--------|----------|------|------|
+| **AvsHModel** | `kykim/funnel-kor-base` | 110M | Embedding Backbone | BCE + BPR |
+| **AvsHModel** | `kykim/bert-kor-base` | 110M | Embedding Backbone | BCE + BPR |
+| **Gemma3** | `google/gemma-3-12b-it` | 12B | InfoNCE Loss (선택) | BCE + InfoNCE |
+| **Qwen3** | `Qwen/Qwen3-14B` | 14B | InfoNCE Loss (선택) | BCE + InfoNCE |
+
+### Meta-Classifier
+
+| 분류기 타입 | 입력 차원 | 출력 | 용도 |
+|-------------|-----------|------|------|
+| **MLP** | 4 (Fold Logits) | 1 (Binary) | 최종 예측 |
+| **Ridge** | 4 (Fold Logits) | 1 (Binary) | 최종 예측 |
+
+---
+
+## 요약
 
 ### v1.3에서 사용하는 모델
 
@@ -369,13 +367,4 @@ cv = 5                            # Cross-validation folds
 - **균형형**: Funnel + InfoNCE + MLP
 - **경량형**: Funnel + Ridge
 - **고성능형**: BERT + InfoNCE + MLP
-
----
-
-## 📚 참고 자료
-
-- **SKKUAI 프로젝트**: `2025_SW_Centered_University_Digital_Competition_SKKUAI/`
-- **AIGT 프로젝트**: `2025-digital-aigt-detection/`
-- **구현 가이드**: `v1.3_implementation_guide.md`
-- **파일 구조**: `v1.3_file_structure.md`
 

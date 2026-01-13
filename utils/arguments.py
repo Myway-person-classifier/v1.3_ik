@@ -41,10 +41,15 @@ def get_arguments():
     parser.add_argument('--embedding_model', type=str, default='kykim/funnel-kor-base', help='Embedding model name or path')
 
     #================= parser with save, load  ===========================#
+    # Colab 환경 지원: 환경 변수로 기본 경로 설정 가능
+    default_data_dir = os.environ.get('DATA_DIR', './data')
+    default_output_dir = os.environ.get('OUTPUT_DIR', './outputs')
+    
     parser.add_argument('--save_dir', type=str, default='baseline', help='Save directory') #save_name
     parser.add_argument('--save_name', type=str, default='test_logits', help='Name of the saved model file')
     parser.add_argument('--load_dir', type=str, default='baseline', help='Load directory')
-    parser.add_argument('--data_dir', type=str, default='./data', help='Data directory')
+    parser.add_argument('--data_dir', type=str, default=default_data_dir, help='Data directory (can be set via DATA_DIR env var)')
+    parser.add_argument('--output_dir', type=str, default=default_output_dir, help='Output directory (can be set via OUTPUT_DIR env var)')
     parser.add_argument('--num_labels', type=int, default=1, help='Number of labels for classification')
 
     #num_heads

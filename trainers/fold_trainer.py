@@ -9,8 +9,8 @@ from typing import Tuple, Optional
 import torch
 from transformers import TrainingArguments, Trainer
 
-from datasets.get_dataset import get_dataset
-from datasets.text_collator import TextCollator
+from data.get_dataset import get_dataset
+from data.text_collator import TextCollator
 from trainers.hybrid_trainer import HybridTrainer
 from utils.compute_metrics import get_metric
 from utils.arguments import get_arguments
@@ -30,7 +30,12 @@ class FoldTrainer:
     
     def __init__(self, args):
         self.args = args
-        self.logit_dir = "./outputs/fold_logits"
+        # Colab 환경 지원: 환경 변수 또는 args에서 출력 경로 가져오기
+        base_output_dir = getattr(args, 'output_dir', None) or os.environ.get('OUTPUT_DIR', './outputs')
+        
+        # 여러 모델 지원: 모델별로 logit 디렉토리 분리
+        model_name = getattr(args, 'model_name', 'default')
+        self.logit_dir = os.path.join(base_output_dir, "fold_logits", model_name)
         os.makedirs(f"{self.logit_dir}/oof", exist_ok=True)
         os.makedirs(f"{self.logit_dir}/test", exist_ok=True)
     
@@ -53,6 +58,11 @@ class FoldTrainer:
         self.args.is_kfold = True
         self.args.k_fold = 4
         
+        # Set save_dir to ensure consistent k_fold_split.json location
+        # This ensures all folds use the same split file (constants_phase4/k_fold_split.json)
+        if not hasattr(self.args, 'save_dir') or self.args.save_dir == 'baseline':
+            self.args.save_dir = 'v1.3_fold'  # Use v1.3_fold to get constants_phase4
+        
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.args.embedding_model)
         if tokenizer.pad_token is None:
@@ -68,7 +78,9 @@ class FoldTrainer:
         model = self._load_model()
         
         # Training arguments
-        output_dir = f"./outputs/fold_{fold_idx}"
+        # Colab 환경 지원: 환경 변수 또는 args에서 출력 경로 가져오기
+        base_output_dir = getattr(self.args, 'output_dir', None) or os.environ.get('OUTPUT_DIR', './outputs')
+        output_dir = os.path.join(base_output_dir, f"fold_{fold_idx}")
         os.makedirs(output_dir, exist_ok=True)
         
         training_args = TrainingArguments(
@@ -265,3 +277,85 @@ def train_all_folds(args):
     print("\n" + "="*60)
     print("All folds completed!")
     print("="*60)
+
+
+def train_multiple_models(model_names, base_args):
+    """
+    Train multiple models sequentially, each with all 4 folds
+    
+    All models use the same Fold split (k_fold_split.json) to ensure
+    consistent data splits across models.
+    
+    Args:
+        model_names: List of model names to train (e.g., ['HybridAvsH', 'Gemma3InfoNCE'])
+        base_args: Base configuration (will be copied for each model)
+    
+    Returns:
+        Dictionary mapping model_name to logit directory
+    """
+    import copy
+    
+    print("="*60)
+    print(f"Training {len(model_names)} models: {model_names}")
+    print("="*60)
+    print("Note: All models will use the same Fold split for consistency.\n")
+    
+    model_logit_dirs = {}
+    
+    for model_idx, model_name in enumerate(model_names):
+        print(f"\n{'='*60}")
+        print(f"Model {model_idx+1}/{len(model_names)}: {model_name}")
+        print(f"{'='*60}\n")
+        
+        # Copy args and set model name
+        args = copy.deepcopy(base_args)
+        args.model_name = model_name
+        
+        # Train all folds for this model
+        fold_trainer = FoldTrainer(args)
+        
+        for fold_idx in range(4):
+            try:
+                logits, labels = fold_trainer.train_fold(fold_idx)
+                print(f"✅ {model_name} - Fold {fold_idx} completed")
+            except Exception as e:
+                print(f"❌ {model_name} - Fold {fold_idx} failed: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        # Store logit directory
+        base_output_dir = getattr(args, 'output_dir', None) or os.environ.get('OUTPUT_DIR', './outputs')
+        model_logit_dirs[model_name] = os.path.join(base_output_dir, "fold_logits", model_name)
+        print(f"\n✅ {model_name} training completed!")
+        print(f"   Logits saved to: {model_logit_dirs[model_name]}\n")
+    
+    print("\n" + "="*60)
+    print(f"All {len(model_names)} models completed!")
+    print("="*60)
+    print("\nLogit directories:")
+    for model_name, logit_dir in model_logit_dirs.items():
+        print(f"  - {model_name}: {logit_dir}")
+    
+    return model_logit_dirs
+
+
+def main():
+    """
+    Main entry point for fold training
+    Can be used to train a single fold or all folds
+    """
+    args = get_arguments()
+    
+    # If fold_idx is specified, train only that fold
+    if args.fold_idx is not None and args.fold_idx >= 0:
+        fold_trainer = FoldTrainer(args)
+        logits, labels = fold_trainer.train_fold(args.fold_idx)
+        print(f"✅ Fold {args.fold_idx} completed successfully")
+    else:
+        # Train all folds
+        train_all_folds(args)
+
+
+if __name__ == "__main__":
+    main()
