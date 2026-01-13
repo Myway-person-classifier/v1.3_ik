@@ -1,0 +1,42 @@
+# Core ML framework (CUDA build tag included)
+# torch==2.6.0+cu124
+torchvision==0.22.1
+
+# Hugging Face
+transformers==4.53.2
+datasets==4.0.0
+huggingface-hub==0.33.2
+tokenizers==0.15.2
+sentencepiece
+safetensors==0.5.3
+
+# Training / optimization
+accelerate==0.26.1
+deepspeed==0.17.1
+peft==0.16.0
+bitsandbytes==0.46.1
+torchmetrics==1.7.3
+
+# Data / utils
+numpy==2.0.2
+pandas==2.3.0
+pyarrow==20.0.0
+fsspec==2025.5.1
+scikit-learn==1.7.0
+scipy==1.15.3
+tqdm==4.67.1
+joblib==1.5.1
+
+# Optional / telemetry / logging
+wandb==0.21.0
+
+# Misc
+requests==2.32.4
+protobuf==6.31.1
+typing_extensions==4.14.0
+
+# Project-specific / third-party (may be local packages)
+qwen3_seqcls_infonce
+
+# If you install torch with the +cu124 wheel, you may need the PyTorch index URL:
+# pip install --extra-index-url https://download.pytorch.org/whl/cu124 -r requirements.txt

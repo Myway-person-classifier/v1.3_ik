@@ -9,8 +9,8 @@ from typing import Tuple, Optional
 import torch
 from transformers import TrainingArguments, Trainer
 
-from datasets.get_dataset import get_dataset
-from datasets.text_collator import TextCollator
+from data.get_dataset import get_dataset
+from data.text_collator import TextCollator
 from trainers.hybrid_trainer import HybridTrainer
 from utils.compute_metrics import get_metric
 from utils.arguments import get_arguments
@@ -52,6 +52,11 @@ class FoldTrainer:
         self.args.fold_idx = fold_idx
         self.args.is_kfold = True
         self.args.k_fold = 4
+        
+        # Set save_dir to ensure consistent k_fold_split.json location
+        # This ensures all folds use the same split file (constants_phase4/k_fold_split.json)
+        if not hasattr(self.args, 'save_dir') or self.args.save_dir == 'baseline':
+            self.args.save_dir = 'v1.3_fold'  # Use v1.3_fold to get constants_phase4
         
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.args.embedding_model)
@@ -265,3 +270,24 @@ def train_all_folds(args):
     print("\n" + "="*60)
     print("All folds completed!")
     print("="*60)
+
+
+def main():
+    """
+    Main entry point for fold training
+    Can be used to train a single fold or all folds
+    """
+    args = get_arguments()
+    
+    # If fold_idx is specified, train only that fold
+    if args.fold_idx is not None and args.fold_idx >= 0:
+        fold_trainer = FoldTrainer(args)
+        logits, labels = fold_trainer.train_fold(args.fold_idx)
+        print(f"✅ Fold {args.fold_idx} completed successfully")
+    else:
+        # Train all folds
+        train_all_folds(args)
+
+
+if __name__ == "__main__":
+    main()

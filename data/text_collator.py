@@ -144,7 +144,12 @@ class TextCollator:
         else:
             # 기존 full_text 토크나이징 로직
             if self.args.add_title:
-                texts = [f"{x['title']} [SEP] {x['full_text']}" for x in batch]
+                # title이 없으면 빈 문자열로 처리
+                texts = [
+                    f"{x.get('title', '')} [SEP] {x['full_text']}" 
+                    if x.get('title', '') else x['full_text']
+                    for x in batch
+                ]
             else:
                 texts = [x['full_text'] for x in batch]
             tok = self.tokenizer(

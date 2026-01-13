@@ -6,6 +6,7 @@ Trains MLP or Ridge classifier on fold logits
 import os
 import argparse
 import numpy as np
+import torch
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
 from utils.logit_collector import LogitCollector
 from meta.meta_classifier import MetaClassifier
