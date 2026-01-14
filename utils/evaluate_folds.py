@@ -146,7 +146,7 @@ def evaluate_meta_classifier(
     preds = classifier.predict(meta_features)
     
     # Calculate metrics
-    labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels
+    labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels.astype(int)
     metrics = {
         'accuracy': accuracy_score(labels_binary, preds),
         'f1_score': f1_score(labels_binary, preds, average='macro'),
@@ -154,6 +154,19 @@ def evaluate_meta_classifier(
         'recall': recall_score(labels_binary, preds, average='macro'),
         'roc_auc': roc_auc_score(labels_binary, probs[:, 1])
     }
+    
+    # Print detailed report
+    print("\n" + "📋 상세 리포트 (0: Human, 1: AI)")
+    print("-" * 60)
+    print(classification_report(labels_binary, preds, target_names=['Human', 'AI']))
+    
+    # Confusion matrix
+    print("\n" + "-" * 60)
+    print("🔍 Confusion Matrix")
+    cm = confusion_matrix(labels_binary, preds)
+    print(cm)
+    print("( [TN FP]")
+    print("  [FN TP] )")
     
     return metrics
 
@@ -298,6 +311,29 @@ def generate_evaluation_report(
     print("\n1. Evaluating all folds...")
     fold_metrics_df = evaluate_all_folds(logit_dir)
     print(fold_metrics_df.to_string(index=False))
+    
+    # Print detailed reports for each fold
+    print("\n" + "="*60)
+    print("Fold별 상세 리포트")
+    print("="*60)
+    results = load_fold_results(logit_dir)
+    for fold_name, fold_data in results.items():
+        if fold_data['labels'] is not None:
+            print(f"\n{fold_name} ({fold_data['type']}):")
+            logits = fold_data['logits']
+            labels = fold_data['labels']
+            preds = (logits > 0).astype(int)
+            labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels.astype(int)
+            
+            print("\n📋 상세 리포트 (0: Human, 1: AI)")
+            print("-" * 60)
+            print(classification_report(labels_binary, preds, target_names=['Human', 'AI']))
+            
+            print("\n🔍 Confusion Matrix")
+            cm = confusion_matrix(labels_binary, preds)
+            print(cm)
+            print("( [TN FP]")
+            print("  [FN TP] )")
     
     # Save fold metrics
     fold_metrics_path = os.path.join(output_dir, 'fold_metrics.csv')

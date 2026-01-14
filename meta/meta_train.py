@@ -7,7 +7,10 @@ import os
 import argparse
 import numpy as np
 import torch
-from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
+from sklearn.metrics import (
+    roc_auc_score, accuracy_score, f1_score,
+    classification_report, confusion_matrix
+)
 from utils.logit_collector import LogitCollector
 from meta.meta_classifier import MetaClassifier
 
@@ -206,13 +209,29 @@ def main():
     probs = classifier.predict_proba(meta_features)
     preds = classifier.predict(meta_features)
     
-    auc = roc_auc_score(labels, probs[:, 1])
-    acc = accuracy_score(labels, preds)
-    f1 = f1_score(labels, preds)
+    # Convert labels to binary if needed
+    labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels.astype(int)
+    
+    auc = roc_auc_score(labels_binary, probs[:, 1])
+    acc = accuracy_score(labels_binary, preds)
+    f1 = f1_score(labels_binary, preds)
     
     print(f"ROC-AUC: {auc:.4f}")
     print(f"Accuracy: {acc:.4f}")
     print(f"F1-Score: {f1:.4f}")
+    
+    # Detailed classification report
+    print("\n" + "📋 상세 리포트 (0: Human, 1: AI)")
+    print("-" * 60)
+    print(classification_report(labels_binary, preds, target_names=['Human', 'AI']))
+    
+    # Confusion matrix
+    print("\n" + "-" * 60)
+    print("🔍 Confusion Matrix")
+    cm = confusion_matrix(labels_binary, preds)
+    print(cm)
+    print("( [TN FP]")
+    print("  [FN TP] )")
     
     # Save model
     if args.save_model:
