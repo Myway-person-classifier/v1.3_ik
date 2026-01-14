@@ -84,10 +84,16 @@ class TextCollator:
             #print(f"Batch size: {len(batch)}, Paragraphs: {len(flat_paras)}")
 
         elif self.args.use_paragraph:
-            # 1) batch 안의 모든 문단 리스트를 꺼내고
-            paragraph_texts = [x['paragraph_text'] for x in batch]  # List[List[str]]
+            # 1) batch 안의 모든 문단 리스트를 꺼내고 (방어적 코드로 변경)
+            paragraph_texts = [
+                x.get('paragraph_text', [str(x.get('full_text', ''))]) 
+                for x in batch
+            ]
             # (옵션) paragraph_index 도 똑같이
-            paragraph_idxs  = [x['paragraph_index'] for x in batch] # List[List[int]]
+            paragraph_idxs = [
+                x.get('paragraph_index', [0]) 
+                for x in batch
+            ]
             
             # 2) flatten 해서 한 번에 토크나이징
             flat_paras = [p for paras in paragraph_texts for p in paras]
