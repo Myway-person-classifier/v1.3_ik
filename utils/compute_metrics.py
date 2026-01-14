@@ -40,21 +40,31 @@ def get_metric(args):
                 np.save(f'./ckpt/{args.save_dir}/{args.save_name}_label.npy', labels)
             metric['accuracy'] = 1.0
         else:
-            # accuracy 계산 # 1 if >0.5 else 0
-            preds = np.argmax(logits, axis=1) if logits.ndim > 1 else (logits > 0.).astype(int)
+            # logits를 확률값으로 변환 (sigmoid)
+            # BCEWithLogitsLoss를 사용하므로 sigmoid를 적용해야 함
+            probs = 1 / (1 + np.exp(-logits))  # sigmoid: 1 / (1 + exp(-x))
+            
+            # accuracy 계산: 확률 > 0.5이면 1, 아니면 0
+            preds = (probs > 0.5).astype(int)
             metric['accuracy'] = accuracy_score(labels, preds)  
 
             # f1 score 계산
             metric['f1_score'] = f1_score(labels, preds, average='macro')
 
             # precision 계산
-            metric['precision'] = precision_score(labels, preds, average='macro')
+            metric['precision'] = precision_score(labels, preds, average='macro', zero_division=0)
 
             # recall 계산
-            metric['recall'] = recall_score(labels, preds, average='macro')
+            metric['recall'] = recall_score(labels, preds, average='macro', zero_division=0)
 
-            # roc_auc score 계산
-            metric['roc_auc'] = roc_auc_score(labels, logits)
+            # roc_auc score 계산 (확률값 사용)
+            try:
+                # roc_auc_score는 확률값(0~1)을 기대함
+                metric['roc_auc'] = roc_auc_score(labels, probs)
+            except ValueError as e:
+                # 클래스가 하나만 있는 경우 등 예외 처리
+                print(f"Warning: ROC AUC calculation failed: {e}. Using default value 0.5")
+                metric['roc_auc'] = 0.5
         
         return metric
 

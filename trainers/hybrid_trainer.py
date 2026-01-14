@@ -212,21 +212,31 @@ class HybridTrainer(Trainer):
         self,
         model: nn.Module,
         inputs: Dict[str, Union[torch.Tensor, Any]],
-        *args, **kwargs
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+        **kwargs
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Prediction step for evaluation"""
+        """
+        Prediction step for evaluation. 
+        Ensures outputs are moved to CPU and formatted correctly for compute_metrics.
+        """
         model.eval()
+        inputs = self._prepare_inputs(inputs)
         
         with torch.no_grad():
-            eval_loss, pred, label = self.compute_loss(
-                model, inputs, return_outputs=True
-            )
-        
+            # compute_loss를 사용하여 loss, logits, labels를 한 번에 가져옴
+            loss, logits, labels = self.compute_loss(model, inputs, return_outputs=True)
+
+        if prediction_loss_only:
+            return (loss, None, None)
+
         if self.args_original.split_valid_by_paragraph:
-            pred = pred.view(1, -1)
-            label = label.view(1, -1)
+            # 문단 단위 평가일 경우 차원 조정
+            logits = logits.view(1, -1)
+            labels = labels.view(1, -1)
         
-        return (eval_loss, pred, label)
+        # detach()를 통해 계산 그래프에서 분리하여 메모리 누수 방지
+        return (loss, logits.detach(), labels.detach())
 
 
 # For backward compatibility
