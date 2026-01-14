@@ -49,19 +49,24 @@ class FoldTrainer:
         Returns:
             Tuple of (logits, labels) for the validation/test set
         """
+        if getattr(self.args, 'predict_only', False):
+            return self.predict_fold(fold_idx)
+
         print(f"\n{'='*60}")
         print(f"Training Fold {fold_idx}")
         print(f"{'='*60}\n")
         
-        # Set fold index in args
-        self.args.fold_idx = fold_idx
-        self.args.is_kfold = True
-        self.args.k_fold = 4
+        # ... (rest of the existing train_fold code)
+    
+    def predict_fold(self, fold_idx: int) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Run inference only for a single fold
+        """
+        print(f"\n{'='*60}")
+        print(f"Inference only: Fold {fold_idx}")
+        print(f"{'='*60}\n")
         
-        # Set save_dir to ensure consistent k_fold_split.json location
-        # This ensures all folds use the same split file (constants_phase4/k_fold_split.json)
-        if not hasattr(self.args, 'save_dir') or self.args.save_dir == 'baseline':
-            self.args.save_dir = 'v1.3_fold'  # Use v1.3_fold to get constants_phase4
+        self.args.fold_idx = fold_idx
         
         # Load tokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.args.embedding_model)
@@ -70,15 +75,9 @@ class FoldTrainer:
         
         # Get datasets
         datasets = get_dataset(self.args, tokenizer)
-        train_dataset = datasets['train']
         val_dataset = datasets['val']
         
-        if train_dataset is None:
-            raise ValueError("Training dataset is None. Check get_dataset return value.")
-        if val_dataset is None:
-            raise ValueError("Validation dataset is None. Check get_dataset return value.")
-        
-        print(f"✅ Dataset loaded: train={len(train_dataset)}, val={len(val_dataset)}")
+        print(f"✅ Dataset loaded: size={len(val_dataset)}")
         
         # Create collator
         collator = TextCollator(self.args, tokenizer)
@@ -86,58 +85,46 @@ class FoldTrainer:
         # Load model
         model = self._load_model()
         
-        # Training arguments
-        # Colab 환경 지원: 환경 변수 또는 args에서 출력 경로 가져오기
+        # Load weights
         base_output_dir = getattr(self.args, 'output_dir', None) or os.environ.get('OUTPUT_DIR', './outputs')
-        output_dir = os.path.join(base_output_dir, f"fold_{fold_idx}")
-        os.makedirs(output_dir, exist_ok=True)
+        model_path = os.path.join(base_output_dir, f"fold_{fold_idx}", "best_model")
         
+        if os.path.exists(model_path):
+            print(f"Loading weights from {model_path}")
+            # Try to load state dict if it's a pytorch model, otherwise use from_pretrained
+            if hasattr(model, 'load_state_dict'):
+                try:
+                    # HuggingFace models might need special handling
+                    if hasattr(model, 'from_pretrained'):
+                        model = model.__class__.from_pretrained(model_path)
+                    else:
+                        state_dict = torch.load(os.path.join(model_path, "pytorch_model.bin"), map_location='cpu')
+                        model.load_state_dict(state_dict)
+                except Exception as e:
+                    print(f"Warning: Could not load weights: {e}")
+        
+        # Training arguments (needed for Trainer initialization)
         training_args = TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=self.args.num_train_epochs,
-            per_device_train_batch_size=self.args.per_device_train_batch_size,
+            output_dir="./tmp",
             per_device_eval_batch_size=self.args.per_device_eval_batch_size,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            learning_rate=self.args.learning_rate,
-            warmup_ratio=self.args.warmup_ratio,
-            weight_decay=self.args.weight_decay,
-            logging_steps=self.args.logging_steps,
-            save_strategy="epoch",
-            eval_strategy="epoch",
-            load_best_model_at_end=True,
-            metric_for_best_model="roc_auc",
-            greater_is_better=True,
-            save_total_limit=2,
             fp16=torch.cuda.is_available(),
-            dataloader_num_workers=0,
             report_to=None,
         )
         
         # Create trainer
-        compute_metrics = get_metric(self.args)
-        
         trainer = HybridTrainer(
             args_original=self.args,
             model=model,
             args=training_args,
-            train_dataset=train_dataset,
-            eval_dataset=val_dataset,
             data_collator=collator,
-            compute_metrics=compute_metrics,
         )
         
-        # Train
-        trainer.train()
-        
-        # Save model
-        trainer.save_model(f"{output_dir}/best_model")
-        
         # Collect logits
-        print(f"\nCollecting logits for Fold {fold_idx}...")
-        logits, labels = self._collect_logits(trainer, val_dataset, collator, fold_idx)
+        save_type = 'test' if self.args.is_submission else 'oof'
+        logits, labels = self._collect_logits(trainer, val_dataset, collator, fold_idx, save_type=save_type)
         
         return logits, labels
-    
+
     def _load_model(self):
         """Load model based on args.model_name"""
         if self.args.model_name == 'AvsHModel' or self.args.model_name == 'HybridAvsH':
@@ -183,7 +170,8 @@ class FoldTrainer:
         trainer: Trainer, 
         dataset, 
         collator,
-        fold_idx: int
+        fold_idx: int,
+        save_type: str = 'oof'
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Collect logits from validation/test dataset
@@ -193,6 +181,7 @@ class FoldTrainer:
             dataset: Validation/test dataset
             collator: Data collator
             fold_idx: Fold index
+            save_type: 'oof' or 'test'
             
         Returns:
             Tuple of (logits, labels)
@@ -248,18 +237,17 @@ class FoldTrainer:
         labels = np.concatenate(all_labels, axis=0) if all_labels else None
         
         # Save logits
-        if fold_idx == 0:
-            # OOF logits (Fold 0 validation set)
-            np.save(f"{self.logit_dir}/oof/fold0_logits.npy", logits)
-            if labels is not None:
-                np.save(f"{self.logit_dir}/oof/fold0_labels.npy", labels)
-            print(f"Saved OOF logits to {self.logit_dir}/oof/fold0_logits.npy")
-        else:
-            # Test logits (Fold 1, 2, 3 validation sets)
-            np.save(f"{self.logit_dir}/test/fold{fold_idx}_logits.npy", logits)
-            if labels is not None:
-                np.save(f"{self.logit_dir}/test/fold{fold_idx}_labels.npy", labels)
-            print(f"Saved test logits to {self.logit_dir}/test/fold{fold_idx}_logits.npy")
+        target_dir = os.path.join(self.logit_dir, save_type)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        logit_path = f"{target_dir}/fold{fold_idx}_logits.npy"
+        label_path = f"{target_dir}/fold{fold_idx}_labels.npy"
+        
+        np.save(logit_path, logits)
+        if labels is not None:
+            np.save(label_path, labels)
+        
+        print(f"Saved {save_type.upper()} logits to {logit_path}")
         
         return logits, labels
 

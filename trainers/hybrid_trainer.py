@@ -25,7 +25,16 @@ class HybridTrainer(Trainer):
         self.args_original = args_original
         
         # Initialize loss functions
-        self.loss_fn_list = [('bce', nn.BCEWithLogitsLoss(), 1.0)]
+        # ✅ Class imbalance 대응 (Suspect 4)
+        pos_weight = getattr(args_original, 'pos_weight', None)
+        if pos_weight is not None:
+            pos_weight = torch.tensor([pos_weight], dtype=torch.float)
+            print(f"Using BCEWithLogitsLoss with pos_weight={pos_weight.item()}")
+            bce_loss = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        else:
+            bce_loss = nn.BCEWithLogitsLoss()
+            
+        self.loss_fn_list = [('bce', bce_loss, 1.0)]
         
         if args_original.use_bpr_loss:
             self.loss_fn_list.append(
@@ -185,13 +194,21 @@ class HybridTrainer(Trainer):
         has_contrastive = 'contrastive_labels' in forward_sig.parameters
         
         if has_contrastive and contrastive_labels is not None:
+            # ✅ Handle parameter name differences between models (Suspect: parameter name mismatch)
+            cl_kwargs = {
+                'contrastive_labels': contrastive_labels,
+                'lambda_cl': lambda_cl
+            }
+            if 'temperature' in forward_sig.parameters:
+                cl_kwargs['temperature'] = temperature
+            elif 'margin' in forward_sig.parameters:
+                cl_kwargs['margin'] = temperature  # Map temperature to margin for Gemma3InfoNCE
+            
             # Pass contrastive_labels to model
             output = model(
                 **inputs,
                 labels=label,
-                contrastive_labels=contrastive_labels,
-                lambda_cl=lambda_cl,
-                temperature=temperature
+                **cl_kwargs
             )
             logits = output.logits.view(-1)
             total_loss = output.loss

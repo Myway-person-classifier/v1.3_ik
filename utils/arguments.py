@@ -12,6 +12,7 @@ def get_arguments():
     
     parser.add_argument('--use_bpr_loss', type=bool, default=False, help='Use BPR loss instead of BCEWithLogitsLoss')
     parser.add_argument('--bpr_loss_weight', type=float, default=0.25, help='Weight for BPR loss when using it')
+    parser.add_argument('--pos_weight', type=float, default=None, help='Positive class weight for BCE loss to handle class imbalance')
     
     #================================================================#
     parser.add_argument('--is_kfold', type=bool, default=False, help='Use k-fold cross-validation') 
@@ -70,6 +71,8 @@ def get_arguments():
     # Meta-Learning arguments
     parser.add_argument('--save_fold_logits', type=bool, default=False, 
                         help='Save fold logits for meta-learning')
+    parser.add_argument('--predict_only', action='store_true',
+                        help='Only run inference using trained models (requires ckpt_path or model in output_dir)')
     parser.add_argument('--meta_model_type', type=str, default='mlp', 
                         choices=['mlp', 'ridge'], 
                         help='Meta-classifier type')

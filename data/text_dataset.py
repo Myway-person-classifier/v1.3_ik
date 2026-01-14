@@ -39,7 +39,14 @@ class TextDataset(Dataset):
         # title이 있으면 사용, 없으면 빈 문자열
         title = cur_line.get('title', '') if 'title' in cur_line else ''
         full_text = str(cur_line['full_text'])  # str
-        label = cur_line['generated']  # int
+        
+        # ✅ 라벨 dtype 보정 (Suspect 1 대응)
+        try:
+            label = int(cur_line['generated'])
+        except (ValueError, TypeError):
+            # float인 경우 반올림 처리, 그 외에는 0/1 임계값 처리
+            val = float(cur_line['generated'])
+            label = 1 if val > 0.5 else 0
         
         paragraph_text = full_text.split('\n')  # list of str
         paragraph_index = [i for i in range(len(paragraph_text))]
@@ -62,7 +69,13 @@ class TextDataset(Dataset):
         # title이 있으면 사용, 없으면 빈 문자열
         title = cur_line.get('title', '') if 'title' in cur_line else ''
         full_text = str(cur_line['full_text'])  # str
-        label = cur_line['generated']  # int
+        
+        # ✅ 라벨 dtype 보정 (Suspect 1 대응)
+        try:
+            label = int(cur_line['generated'])
+        except (ValueError, TypeError):
+            val = float(cur_line['generated'])
+            label = 1 if val > 0.5 else 0
         
         paragraph_text = full_text.split('\n')  # list of str
         paragraph_index = [i for i in range(len(paragraph_text))]

@@ -64,10 +64,11 @@ class MLPClassifierTorch(nn.Module):
             lr: Learning rate
             verbose: Whether to print training progress
         """
+        device = next(self.parameters()).device
         self.train()
         
-        X_tensor = torch.FloatTensor(X)
-        y_tensor = torch.FloatTensor(y)
+        X_tensor = torch.FloatTensor(X).to(device)
+        y_tensor = torch.FloatTensor(y).to(device)
         
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         criterion = nn.BCELoss()
@@ -93,9 +94,10 @@ class MLPClassifierTorch(nn.Module):
     def predict_proba(self, X):
         """Predict probabilities"""
         self.eval()
+        device = next(self.parameters()).device
         with torch.no_grad():
-            X_tensor = torch.FloatTensor(X)
-            probs = self(X_tensor).numpy()
+            X_tensor = torch.FloatTensor(X).to(device)
+            probs = self(X_tensor).cpu().numpy()
         # Return in format [prob_class_0, prob_class_1]
         return np.stack([1 - probs, probs], axis=1)
     

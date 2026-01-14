@@ -72,8 +72,13 @@ def load_meta_features_csv(csv_path: str):
     df = pd.read_csv(csv_path)
     
     # Extract fold logits columns
-    fold_cols = [col for col in df.columns if col.startswith('fold_') and col.endswith('_logits')]
-    fold_cols = sorted(fold_cols)  # Ensure order: fold_0, fold_1, fold_2, fold_3
+    # ✅ Support both single model (fold_0_logits) and multi-model (ModelName_fold0)
+    fold_cols = [col for col in df.columns if 'fold' in col and col != 'label']
+    
+    # Ensure consistent ordering if possible
+    # For single model, it will be fold_0_logits, fold_1_logits...
+    # For multi-model, it will be Model1_fold0, Model1_fold1...
+    fold_cols = sorted(fold_cols)
     
     meta_features = df[fold_cols].values.astype(np.float32)
     

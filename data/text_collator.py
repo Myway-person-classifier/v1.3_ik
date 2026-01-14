@@ -119,9 +119,9 @@ class TextCollator:
             for ids, masks in zip(split_ids, split_masks):
                 pad_num = max_paras - ids.size(0)
                 if pad_num > 0:
-                    # [pad_num, seq_len] 짜리 0 패드
-                    pad_ids   = torch.zeros((pad_num, seq_len), dtype=ids.dtype)
-                    pad_masks = torch.zeros((pad_num, seq_len), dtype=masks.dtype)
+                    # ✅ Correct padding with pad_token_id (Suspect: hardcoded 0)
+                    pad_ids = ids.new_full((pad_num, seq_len), self.tokenizer.pad_token_id)
+                    pad_masks = masks.new_zeros((pad_num, seq_len))
                     ids   = torch.cat([ids,   pad_ids],   dim=0)
                     masks = torch.cat([masks, pad_masks], dim=0)
                 padded_ids.append(ids)       # [num_paras_i, seq_len] → [max_paras, seq_len]

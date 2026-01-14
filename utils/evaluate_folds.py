@@ -25,28 +25,54 @@ def load_fold_results(logit_dir: str = "./outputs/fold_logits") -> Dict:
     """
     results = {}
     
-    # Fold 0 (OOF)
-    oof_logits_path = os.path.join(logit_dir, "oof", "fold0_logits.npy")
-    oof_labels_path = os.path.join(logit_dir, "oof", "fold0_labels.npy")
+    # Check if logit_dir has model subdirectories
+    model_dirs = []
+    if os.path.exists(logit_dir):
+        model_dirs = [d for d in os.listdir(logit_dir) 
+                     if os.path.isdir(os.path.join(logit_dir, d)) 
+                     and (os.path.exists(os.path.join(logit_dir, d, 'oof')) or 
+                          os.path.exists(os.path.join(logit_dir, d, 'test')))]
     
-    if os.path.exists(oof_logits_path):
-        results['fold_0'] = {
-            'logits': np.load(oof_logits_path),
-            'labels': np.load(oof_labels_path) if os.path.exists(oof_labels_path) else None,
-            'type': 'OOF'
-        }
-    
-    # Fold 1, 2, 3 (Test)
-    for fold_idx in [1, 2, 3]:
-        test_logits_path = os.path.join(logit_dir, "test", f"fold{fold_idx}_logits.npy")
-        test_labels_path = os.path.join(logit_dir, "test", f"fold{fold_idx}_labels.npy")
+    if not model_dirs:
+        # Legacy structure (oof/test directly under logit_dir)
+        target_dirs = [logit_dir]
+    else:
+        # Use first model directory found or all? Let's use all and prefix names
+        target_dirs = [os.path.join(logit_dir, d) for d in model_dirs]
+
+    for base_dir in target_dirs:
+        model_name = os.path.basename(base_dir) if len(target_dirs) > 1 else ""
+        prefix = f"{model_name}_" if model_name else ""
         
-        if os.path.exists(test_logits_path):
-            results[f'fold_{fold_idx}'] = {
-                'logits': np.load(test_logits_path),
-                'labels': np.load(test_labels_path) if os.path.exists(test_labels_path) else None,
-                'type': 'Test'
-            }
+        # OOF Logits (All folds)
+        oof_path = os.path.join(base_dir, "oof")
+        if os.path.exists(oof_path):
+            for f in os.listdir(oof_path):
+                if f.endswith("_logits.npy"):
+                    fold_idx = f.replace("fold", "").replace("_logits.npy", "")
+                    logits_path = os.path.join(oof_path, f)
+                    labels_path = os.path.join(oof_path, f.replace("_logits.npy", "_labels.npy"))
+                    
+                    results[f"{prefix}fold_{fold_idx}_oof"] = {
+                        'logits': np.load(logits_path),
+                        'labels': np.load(labels_path) if os.path.exists(labels_path) else None,
+                        'type': 'OOF'
+                    }
+        
+        # Test Logits (Meta-features)
+        test_path = os.path.join(base_dir, "test")
+        if os.path.exists(test_path):
+            for f in os.listdir(test_path):
+                if f.endswith("_logits.npy"):
+                    fold_idx = f.replace("fold", "").replace("_logits.npy", "")
+                    logits_path = os.path.join(test_path, f)
+                    labels_path = os.path.join(test_path, f.replace("_logits.npy", "_labels.npy"))
+                    
+                    results[f"{prefix}fold_{fold_idx}_test"] = {
+                        'logits': np.load(logits_path),
+                        'labels': np.load(labels_path) if os.path.exists(labels_path) else None,
+                        'type': 'Test'
+                    }
     
     return results
 
@@ -62,16 +88,25 @@ def calculate_metrics(logits: np.ndarray, labels: np.ndarray) -> Dict[str, float
     Returns:
         Dictionary of metrics
     """
-    preds = (logits > 0).astype(int)
-    labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels
+    # sigmoid 적용
+    probs = 1 / (1 + np.exp(-np.clip(logits, -500, 500)))
+    preds = (probs > 0.5).astype(int)
+    labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels.astype(int)
+    
+    # 클래스가 하나뿐인지 확인
+    unique_labels = np.unique(labels_binary)
     
     metrics = {
         'accuracy': accuracy_score(labels_binary, preds),
-        'f1_score': f1_score(labels_binary, preds, average='macro'),
-        'precision': precision_score(labels_binary, preds, average='macro'),
-        'recall': recall_score(labels_binary, preds, average='macro'),
-        'roc_auc': roc_auc_score(labels_binary, logits)
+        'f1_score': f1_score(labels_binary, preds, average='macro', zero_division=0),
+        'precision': precision_score(labels_binary, preds, average='macro', zero_division=0),
+        'recall': recall_score(labels_binary, preds, average='macro', zero_division=0),
     }
+    
+    if len(unique_labels) < 2:
+        metrics['roc_auc'] = 0.5
+    else:
+        metrics['roc_auc'] = roc_auc_score(labels_binary, probs)
     
     return metrics
 
@@ -227,8 +262,10 @@ def plot_metrics_comparison(
     for fold_name, fold_data in results.items():
         if fold_data['labels'] is not None:
             labels_binary = (fold_data['labels'] > 0.5).astype(int)
-            fpr, tpr, _ = roc_curve(labels_binary, fold_data['logits'])
-            auc = roc_auc_score(labels_binary, fold_data['logits'])
+            # sigmoid 적용
+            probs = 1 / (1 + np.exp(-np.clip(fold_data['logits'], -500, 500)))
+            fpr, tpr, _ = roc_curve(labels_binary, probs)
+            auc = roc_auc_score(labels_binary, probs)
             ax.plot(fpr, tpr, label=f'{fold_name} (AUC={auc:.3f})', linewidth=2)
     
     ax.plot([0, 1], [0, 1], 'k--', label='Random')
@@ -322,7 +359,10 @@ def generate_evaluation_report(
             print(f"\n{fold_name} ({fold_data['type']}):")
             logits = fold_data['logits']
             labels = fold_data['labels']
-            preds = (logits > 0).astype(int)
+            
+            # sigmoid 적용
+            probs = 1 / (1 + np.exp(-np.clip(logits, -500, 500)))
+            preds = (probs > 0.5).astype(int)
             labels_binary = (labels > 0.5).astype(int) if labels.dtype != int else labels.astype(int)
             
             print("\n📋 상세 리포트 (0: Human, 1: AI)")
