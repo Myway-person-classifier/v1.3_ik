@@ -69,7 +69,16 @@ class FoldTrainer:
             tokenizer.pad_token = tokenizer.eos_token
         
         # Get datasets
-        train_dataset, val_dataset = get_dataset(self.args, tokenizer)
+        datasets = get_dataset(self.args, tokenizer)
+        train_dataset = datasets['train']
+        val_dataset = datasets['val']
+        
+        if train_dataset is None:
+            raise ValueError("Training dataset is None. Check get_dataset return value.")
+        if val_dataset is None:
+            raise ValueError("Validation dataset is None. Check get_dataset return value.")
+        
+        print(f"✅ Dataset loaded: train={len(train_dataset)}, val={len(val_dataset)}")
         
         # Create collator
         collator = TextCollator(self.args, tokenizer)

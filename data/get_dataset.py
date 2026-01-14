@@ -13,9 +13,12 @@ def get_dataset(args, tokenizer):
     
     Args:
         args: Configuration object containing dataset parameters.
+        tokenizer: Tokenizer for text processing
         
     Returns:
-        The dataset corresponding to the provided arguments.
+        dict with keys:
+            - 'train': Training dataset (or None for submission mode)
+            - 'val': Validation/test dataset
     """
 
     if not args.is_submission:
@@ -115,9 +118,19 @@ def get_dataset(args, tokenizer):
                 fold_valid.append(valid_ds)
 
             print(f"Total folds: {len(fold_train)}")
+            
+            # fold_idx 범위 검증
+            if args.fold_idx < 0 or args.fold_idx >= len(fold_train):
+                raise IndexError(
+                    f"fold_idx {args.fold_idx} is out of range. "
+                    f"Valid range: 0 to {len(fold_train) - 1}"
+                )
 
             # 요청된 fold_idx 리턴
-            return fold_train[args.fold_idx], fold_valid[args.fold_idx]
+            return {
+                'train': fold_train[args.fold_idx],
+                'val': fold_valid[args.fold_idx]
+            }
 
         else:
             print("Using standard train/validation split")
@@ -132,7 +145,10 @@ def get_dataset(args, tokenizer):
             
             train_dataset = TextDataset(args, train_df, tokenizer, args.max_length, is_train = True)
             val_dataset = TextDataset(args, val_subset, tokenizer, args.max_length, is_train = False)
-            return train_dataset, val_dataset
+            return {
+                'train': train_dataset,
+                'val': val_dataset
+            }
 
     else:
         test_path = os.path.join(args.data_dir, "test.csv")
@@ -140,4 +156,7 @@ def get_dataset(args, tokenizer):
         test_dataset = TextDataset(args, test_df, tokenizer, args.max_length, is_train = False, is_submission=True)
         print(f"Test size: {len(test_dataset)}")
                 
-        return None, test_dataset
+        return {
+            'train': None,
+            'val': test_dataset
+        }
