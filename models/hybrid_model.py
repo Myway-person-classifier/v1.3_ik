@@ -131,7 +131,7 @@ class HybridAvsHModel(AvsHModel):
             input_chunk = input_ids[:, start:end, :].contiguous().view(-1, seq_length)
             attn_chunk = attention_mask[:, start:end, :].contiguous().view(-1, seq_length)
             
-            outputs = self.embeddding_model(
+            outputs = self.embedding_model(
                 input_ids=input_chunk,
                 attention_mask=attn_chunk
             )
