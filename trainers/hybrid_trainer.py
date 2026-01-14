@@ -218,7 +218,8 @@ class HybridTrainer(Trainer):
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Prediction step for evaluation. 
-        Ensures outputs are moved to CPU and formatted correctly for compute_metrics.
+        HuggingFace Trainer가 자동으로 GPU 텐서를 CPU로 이동시키므로,
+        여기서는 detach()만 수행하고 shape을 정리합니다.
         """
         model.eval()
         inputs = self._prepare_inputs(inputs)
@@ -230,13 +231,28 @@ class HybridTrainer(Trainer):
         if prediction_loss_only:
             return (loss, None, None)
 
+        # Ensure logits and labels are properly shaped for binary classification
+        # logits should be [batch_size] for binary classification
+        if logits is not None:
+            if logits.dim() > 1:
+                logits = logits.view(-1)
+            logits = logits.detach()
+        
+        if labels is not None:
+            if labels.dim() > 1:
+                labels = labels.view(-1)
+            labels = labels.detach()
+        
         if self.args_original.split_valid_by_paragraph:
             # 문단 단위 평가일 경우 차원 조정
-            logits = logits.view(1, -1)
-            labels = labels.view(1, -1)
+            if logits is not None:
+                logits = logits.view(1, -1)
+            if labels is not None:
+                labels = labels.view(1, -1)
         
-        # detach()를 통해 계산 그래프에서 분리하여 메모리 누수 방지
-        return (loss, logits.detach(), labels.detach())
+        # HuggingFace Trainer가 자동으로 GPU 텐서를 CPU로 이동시키므로
+        # 여기서는 detach()만 수행 (GPU에 그대로 두고 Trainer가 처리하도록)
+        return (loss, logits, labels)
 
 
 # For backward compatibility

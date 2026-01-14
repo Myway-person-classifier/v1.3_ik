@@ -9,8 +9,18 @@ def get_metric(args):
         metric = dict()
 
         # 예측값과 레이블 추출
-        logits = eval_preds.predictions  # shape: [B]
-        labels = eval_preds.label_ids    # shape: [B]
+        logits = eval_preds.predictions  # shape: [B] or [B, 1]
+        labels = eval_preds.label_ids    # shape: [B] or [B, 1]
+        
+        # Ensure logits and labels are 1D arrays
+        logits = np.asarray(logits)
+        labels = np.asarray(labels)
+        
+        # Flatten if needed (handle [B, 1] -> [B])
+        if logits.ndim > 1:
+            logits = logits.flatten()
+        if labels.ndim > 1:
+            labels = labels.flatten()
 
         labels = (labels > 0.5).astype(int)
 
@@ -42,7 +52,9 @@ def get_metric(args):
         else:
             # logits를 확률값으로 변환 (sigmoid)
             # BCEWithLogitsLoss를 사용하므로 sigmoid를 적용해야 함
-            probs = 1 / (1 + np.exp(-logits))  # sigmoid: 1 / (1 + exp(-x))
+            # Numerical stability를 위해 clip 적용
+            logits_clipped = np.clip(logits, -500, 500)  # overflow 방지
+            probs = 1 / (1 + np.exp(-logits_clipped))  # sigmoid: 1 / (1 + exp(-x))
             
             # accuracy 계산: 확률 > 0.5이면 1, 아니면 0
             preds = (probs > 0.5).astype(int)
@@ -60,9 +72,14 @@ def get_metric(args):
             # roc_auc score 계산 (확률값 사용)
             try:
                 # roc_auc_score는 확률값(0~1)을 기대함
-                metric['roc_auc'] = roc_auc_score(labels, probs)
+                # labels에 0과 1이 모두 있어야 함
+                if len(np.unique(labels)) < 2:
+                    # 클래스가 하나만 있는 경우
+                    metric['roc_auc'] = 0.5
+                else:
+                    metric['roc_auc'] = roc_auc_score(labels, probs)
             except ValueError as e:
-                # 클래스가 하나만 있는 경우 등 예외 처리
+                # 예외 처리
                 print(f"Warning: ROC AUC calculation failed: {e}. Using default value 0.5")
                 metric['roc_auc'] = 0.5
         
